@@ -1,0 +1,568 @@
+
+<!DOCTYPE html>
+<html>
+	<head lang="ko">
+		<meta charset="UTF-8">
+		<title>Jump!</title>
+        <meta name="viewport" content="width=device-width, user-scalable=no">
+		<style>
+			@font-face {
+				font-family: "Ubuntu";
+				src: url("/resources/Ubuntu-R.woff");
+			}
+
+			body, html{
+				margin: 0;
+				padding: 0;
+				overflow: hidden;
+				background-color: #303030;
+				height: 100%;
+				width: 100%;
+			}
+
+			a{
+				text-decoration: none;
+				color: #00C0A0;
+				font-weight: bold
+			}
+
+			p{
+				color: #FFFFFF;
+			}
+
+			.developer-title{
+				position: fixed;
+				bottom: 10px;
+				left: 10px;
+				font-family: 'Ubuntu', 'Arial', 'sans-serif';
+			}
+
+            .data{
+                position: fixed;
+                bottom: 10px;
+                right: 10px;
+                font-family: 'Ubuntu', 'Arial', 'sans-serif';
+            }
+
+		</style>
+
+		<script src="/jquery-2.1.3.js"></script>
+	</head>
+
+	<body onload="reset()" onresize="resize()">
+		<canvas id="playground" style="width: 100%; height: 100%">
+			<p>
+				이런 곳을 캔버스 안되는 브라우저로 들어오다니!
+				<br>
+				<a href="https://google.com/chrome">크롬이나 먹어라</a>
+			</p>
+		</canvas>
+
+		<p class="developer-title">
+			Developed by <a href="https://github.com/HelloWorld017">@Khinenw</a>
+            <br>
+            [&leftarrow;, A = LEFT]&nbsp;&nbsp;&nbsp;[&rightarrow;, D = RIGHT]&nbsp;&nbsp;&nbsp;[SPACE = JUMP]&nbsp;&nbsp;&nbsp;[SHIFT = DASH]
+		</p>
+
+        <p class="data">
+            <span id="score"></span>
+        </p>
+
+		<script type="text/javascript">
+			if($(location).attr("hash") === "#nodev"){
+				document.getElementsByClassName("developer-title").style.display = "none";
+			}
+		</script>
+
+		<script type="text/javascript">
+			"use strict";
+
+			var canvas = document.getElementById("playground");
+			var ctx = canvas.getContext("2d");
+
+            var scoreView = document.getElementById("score");
+			var intervalId = null;
+            var scoreIntervalId = null;
+
+            var obstacles = [];
+            var player;
+
+            var spawnTick = 40;
+            var currentSpawnTick = 0;
+			var stage = 1;
+
+            var score = 0;
+
+            var particles = [];
+
+            const PLAYER_COLOR = "#00C0A0";
+			const PLAYER_PARTICLE_COLOR = "rgba(0, 192, 160, %a)";
+
+            const STATUS_INGAME = 0;
+            const STATUS_FINISHED = 1;
+
+            const STAY = 0;
+            const LEFT = 1;
+            const RIGHT = 2;
+
+            var currentStatus = 0;
+
+            function Rect(minX, minY, maxX, maxY){
+                if(maxX < minX){
+                    var x = minX;
+                    minX = maxX;
+                    maxX = x;
+                }
+
+                if(maxY < minY){
+                    var y = minY;
+                    minY = maxY;
+                    maxY = y;
+                }
+
+                this.minX = minX;
+                this.minY = minY;
+                this.maxX = maxX;
+                this.maxY = maxY;
+            }
+
+            Rect.prototype = {
+                getMinX: function(){
+                    return this.minX;
+                },
+
+                getMaxX: function(){
+                    return this.maxX;
+                },
+
+                getMinY: function(){
+                    return this.minY;
+                },
+
+                getMaxY: function(){
+                    return this.maxY;
+                },
+
+                getWidth: function(){
+                    return this.getMaxX() - this.getMinX();
+                },
+
+                getHeight: function(){
+                    return this.getMaxY() - this.getMinY();
+                },
+
+                collides: function(rect){
+                    return (
+                            (((rect.getMinX() <= this.getMaxX()) && (rect.getMinX() >= this.getMinX()))
+                            || ((rect.getMaxX() <= this.getMaxX()) && (rect.getMaxX() >= this.getMinX())))
+                            && (((rect.getMinY() <= this.getMaxY()) && (rect.getMinY() >= this.getMinY()))
+                            || ((rect.getMaxY() <= this.getMaxY()) && (rect.getMaxY() >= this.getMinY())))
+                    );
+                },
+
+                nudgeX: function(amount){
+                    this.minX += amount;
+                    this.maxX += amount;
+                },
+
+                nudgeY: function(amount){
+                    this.minY += amount;
+                    this.maxY += amount;
+                }
+            };
+
+            function Obstacle(color, rect, jumpTick, id, isShooted){
+                this.color = color;
+                this.boundbox = rect;
+                this.currentJumpTick = random(0, jumpTick);
+                this.jumpTick = jumpTick;
+                this.id = id;
+				this.shootX = random(0, canvas.width);
+				this.isShooted = false;
+				if(isShooted) this.isShooted = isShooted;
+            }
+
+            Obstacle.prototype = {
+                getRect: function(){
+                    return this.boundbox;
+                },
+
+                update: function(){
+                    this.currentJumpTick++;
+
+                    if(this.currentJumpTick >= this.jumpTick){
+                        if(this.currentJumpTick - this.jumpTick >= 20){
+                            this.currentJumpTick = 0;
+                        }
+
+                        this.getRect().nudgeY(15);
+                    }else{
+                        if(this.getRect().getMinY() > 0){
+                            this.getRect().nudgeY(-10);
+                        }
+                    }
+
+                    this.getRect().nudgeX(-15);
+
+                    if(this.getRect().getMaxX() < 0){
+                        //delete obstacles[this.id];
+                        //obstacles.splice(this.id - 1, 1);
+						deleteObstacle(this);
+                    }
+					
+					if(Math.max((this.getRect().getMinX() + this.getRect().getMaxX()) / 2,  this.shootX) === this.shootX && !this.isShooted){
+						var id = obstacles.length;
+						obstacles[id] = new Obstacle(
+							randomColor(),
+							new Rect(this.getRect().getMinX(), this.getRect().getMinY(), this.getRect().getMaxX(), this.getRect().getMaxY()),
+							0,
+							id,
+							true
+						);
+						this.isShooted = true;
+					}
+                },
+
+                getColor: function(){
+                    return this.color;
+                }
+            };
+			
+			function deleteObstacle(obstacle){
+				obstacles = obstacles.filter(function(v, index){
+					if(index === obstacle.id) return false;
+					return true;
+				});
+				
+				obstacles.forEach(function(v, index){
+					v.id = index;
+				});
+			}
+
+            function Player(rect){
+                this.boundbox = rect;
+                this.isJumping = false;
+                this.jumpTick = 0;
+
+                this.locomotion = STAY;
+                this.dash = false;
+            }
+
+            Player.prototype = {
+                getRect: function(){
+                    return this.boundbox;
+                },
+
+                update: function(){
+                    this.jumpTick--;
+                    if(this.jumpTick <= 0) this.isJumping = false;
+
+                    if(this.isJumping){
+                        this.getRect().nudgeY(30);
+                    }else if(this.getRect().getMinY() > 0){
+                        this.getRect().nudgeY(-25);
+                    }
+
+                    switch(this.locomotion){
+                        case LEFT:
+                            this.getRect().nudgeX((this.dash) ? -30 : -10);
+                            break;
+
+                        case RIGHT:
+                            this.getRect().nudgeX((this.dash) ? 30 : 10);
+                            break;
+                    }
+
+                    if(this.getRect().getMaxY() > canvas.height){
+                        this.getRect().nudgeY(-500);
+                    }
+
+                    if(this.getRect().getMinY() < 0){
+                        this.getRect().minY = 0;
+                        this.getRect().maxY = 100;
+                    }
+
+                    if(this.getRect().getMinX() < 0){
+                        this.getRect().nudgeX(300);
+                    }
+
+                    if(this.getRect().getMaxX() > canvas.width){
+                        this.getRect().nudgeX(-300);
+                    }
+                },
+
+                jump: function(){
+                    if(!this.isJumping){
+                        this.isJumping = true;
+                        this.jumpTick = 15;
+                    }
+                },
+
+                setMovement: function(locomotion){
+                    this.locomotion = locomotion;
+                },
+
+                setDash: function(isDashing){
+                    this.dash = isDashing;
+                }
+            };
+
+			function reset(){
+				//canvas.width = window.innerWidth;
+				//canvas.height = window.innerHeight;
+				
+				canvas.width = 1366;
+				canvas.height = 768;
+
+				init();
+			}
+
+			function init(){
+                currentStatus = STATUS_INGAME;
+
+                if(intervalId !== null){
+                    clearInterval(intervalId);
+                }
+
+                if(scoreIntervalId !== null){
+                    clearInterval(scoreIntervalId);
+                }
+
+                obstacles = [];
+                particles = [];
+                ctx.textBaseline = "middle";
+                ctx.textAlign = "center";
+                intervalId = setInterval(update, 50);
+                scoreIntervalId = setInterval(setScore, 1000);
+                player = new Player(new Rect(100, 0, 200, 100));
+                score = 0;
+                redraw();
+			}
+
+            function random(min, max){
+                return Math.floor(Math.random() * (max + 1)) + min;
+            }
+
+            function randomColor(){
+                return "#" + getHex(random(0, 255)) + getHex(random(0, 255)) + getHex(random(0, 255));
+            }
+
+            function getHex(code){
+                code = code.toString(16);
+                return ((code.length === 1) ? ("0" + code) : code);
+            }
+
+			function quria(){
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+			}
+
+            function redraw(){
+                if(currentStatus === STATUS_INGAME){
+                    quria();
+                    for(var obstacle in obstacles){
+                        if(!obstacles.hasOwnProperty(obstacle)) continue;
+
+                        var rect = obstacles[obstacle].boundbox;
+
+                        ctx.fillStyle = obstacles[obstacle].getColor();
+                        ctx.fillRect(rect.getMinX(), canvas.height - rect.getMinY() - rect.getHeight() - 100, rect.getWidth(), rect.getHeight());
+                    }
+
+                    var playerRect = player.boundbox;
+                    ctx.fillStyle = PLAYER_COLOR;
+                    ctx.fillRect(playerRect.getMinX(), canvas.height - playerRect.getMinY() - playerRect.getHeight() - 100, playerRect.getWidth(), playerRect.getHeight());
+                }
+            }
+
+            function gameDead(){
+                currentStatus = STATUS_FINISHED;
+                ctx.fillStyle = "#00C0A0";
+                ctx.fillRect(0, (canvas.height / 2) - 50, canvas.width, 100);
+
+                ctx.font = "50px Ubuntu";
+                ctx.fillStyle = "#303030";
+                ctx.fillText("You died!", canvas.width / 2, canvas.height / 2 - 25);
+
+                ctx.font = "25px Ubuntu";
+                ctx.fillText("Score : " + score, canvas.width / 2, canvas.height / 2 + 25);
+
+                clearInterval(scoreIntervalId);
+                scoreIntervalId = null;
+            }
+
+            function resize(){
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+                redraw();
+            }
+
+			function update(){
+				if(currentStatus !== STATUS_FINISHED){
+					player.update();
+					for(var obstacle in obstacles){
+						if(!obstacles.hasOwnProperty(obstacle)) continue;
+
+						if(obstacles[obstacle].getRect().collides(player.getRect())){
+							redraw();
+							gameDead();
+							return;
+						}
+
+						obstacles[obstacle].update();
+					}
+
+					currentSpawnTick++;
+
+					if(spawnTick <= currentSpawnTick){
+						currentSpawnTick = 0;
+						var id = obstacles.length;
+						obstacles[id] = new Obstacle(randomColor(), new Rect(canvas.width + 100, 0, canvas.width, 100), random(20, 70), id);
+					}
+
+					redraw();
+					for(var particleId in particles){
+						if (!particles.hasOwnProperty(particleId)) continue;
+
+						particles[particleId].update();
+					}
+
+                    var playerRect = player.getRect();
+                    var middleX = playerRect.getMinX() + (playerRect.getWidth() / 2);
+                    var middleDrawY = canvas.height - (playerRect.getMinY() + (playerRect.getHeight() / 2)) - 100;
+                    createParticle(middleX, middleDrawY, 30, PLAYER_PARTICLE_COLOR, 500, -0.1, 2);
+                }
+			}
+
+            function setScore(){
+                score++;
+
+                scoreView.innerHTML = "Current Score : " + score;
+            }
+
+            var keyMap = {
+                left: false,
+                right: false
+            };
+
+            function onKeyDown(event){
+                if(currentStatus === STATUS_FINISHED && event.keyCode === 32){
+                    reset();
+                    return;
+                }
+
+                switch(event.keyCode){
+                    case 16: //shift
+                        player.setDash(true);break;
+
+                    case 87: //w
+                    case 38: //up
+                    case 32: //space
+                        player.jump();break;
+
+                    case 65: //a
+                    case 37: //left
+                        keyMap.left = true;
+                        player.setMovement(LEFT);break;
+
+                    case 68: //d
+                    case 39: //right
+                        keyMap.right = true;
+                        player.setMovement(RIGHT);break;
+                }
+
+                event.preventDefault();
+            }
+
+            function onKeyUp(event){
+                switch(event.keyCode){
+                    case 16: //shift
+                        player.setDash(false);break;
+
+                    case 37:
+                    case 65:
+                        keyMap.left = false;
+                        if(!keyMap.right){
+                            player.setMovement(STAY);
+                        }else{
+                            player.setMovement(RIGHT);
+                        }
+                        break;
+
+                    case 39:
+                    case 68:
+                        keyMap.right = false;
+                        if(!keyMap.left){
+                            player.setMovement(STAY);
+                        }else{
+                            player.setMovement(LEFT);
+                        }
+                        break;
+                }
+            }
+			
+			function Particle(id, x, y, size, color, age, grow, ygrow){
+				this.x = x;
+				this.y = y;
+				this.size = size;
+				this.color = color;
+				this.maxAge = age;
+				this.grow = grow;
+				this.ygrow = ygrow;
+				this.currentAge = 0;
+				this.id = id;
+			}
+			
+			Particle.prototype.update =  function(){
+				this.size += this.grow * this.currentAge;
+				
+				if(this.size < 0){
+					//delete particles[this.id];
+					particles.splice(this.id, 1);
+					return;
+				}
+				
+				this.y += this.ygrow;
+
+				var blur = ctx.createRadialGradient(
+						this.x,
+						this.y,
+						0,
+						this.x,
+						this.y,
+						this.size
+				);
+				blur.addColorStop(0.7, this.color.replace("%a", "1"));
+				blur.addColorStop(1, this.color.replace("%a", "0"));
+
+				ctx.fillStyle = blur;
+
+				ctx.beginPath();
+				ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+				ctx.fill();
+				this.currentAge++;
+
+				if(this.currentAge >= this.maxAge){
+					particles.splice(this.id, 1);
+				}
+			}
+
+            function createParticle(x, y, size, color, age, grow, ygrow){
+				var id = particles.length;
+				particles[id] = new Particle(id, x, y, size, color, age, grow, ygrow);
+                
+            }
+
+            window.addEventListener("keydown", onKeyDown, false);
+            window.addEventListener("keyup", onKeyUp, false);
+
+		</script>
+
+		<noscript>
+			<p>
+				이런 곳을 스크립트 안되는 브라우저로 들어오다니!
+				<br>
+				<a href="https://google.com/chrome">크롬이나 먹어라</a>
+			</p>
+		</noscript>
+	</body>
+</html>

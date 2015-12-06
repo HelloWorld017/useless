@@ -171,15 +171,15 @@
                 }
             };
 
-            function Obstacle(color, rect, jumpTick, id, isShooted){
+            function Obstacle(color, rect, jumpTick, id, shootCount){
                 this.color = color;
                 this.boundbox = rect;
                 this.currentJumpTick = random(0, jumpTick);
                 this.jumpTick = jumpTick;
                 this.id = id;
-				this.shootX = random(0, canvas.width);
-				this.isShooted = false;
-				if(isShooted) this.isShooted = isShooted;
+				this.shootX = random(canvas.width * (3 / 5), canvas.width);
+				if(shootCount !== undefined) this.shootCount = shootCount;
+				else this.shootCount = random(0, 3);
             }
 
             Obstacle.prototype = {
@@ -209,17 +209,18 @@
                         //obstacles.splice(this.id - 1, 1);
 						deleteObstacle(this);
                     }
-					
-					if(Math.max((this.getRect().getMinX() + this.getRect().getMaxX()) / 2,  this.shootX) === this.shootX && !this.isShooted){
+
+					if(((this.getRect().getMinX() + this.getRect().getMaxX()) / 2 >  this.shootX) && (this.shootCount > 0)){
 						var id = obstacles.length;
 						obstacles[id] = new Obstacle(
 							randomColor(),
 							new Rect(this.getRect().getMinX(), this.getRect().getMinY(), this.getRect().getMaxX(), this.getRect().getMaxY()),
-							0,
+							random(0, 50),
 							id,
-							true
+							0
 						);
-						this.isShooted = true;
+
+						this.shootCount--;
 					}
                 },
 
@@ -227,13 +228,13 @@
                     return this.color;
                 }
             };
-			
+
 			function deleteObstacle(obstacle){
 				obstacles = obstacles.filter(function(v, index){
 					if(index === obstacle.id) return false;
 					return true;
 				});
-				
+
 				obstacles.forEach(function(v, index){
 					v.id = index;
 				});
@@ -310,7 +311,7 @@
 			function reset(){
 				//canvas.width = window.innerWidth;
 				//canvas.height = window.innerHeight;
-				
+
 				canvas.width = 1366;
 				canvas.height = 768;
 
@@ -416,7 +417,26 @@
 					if(spawnTick <= currentSpawnTick){
 						currentSpawnTick = 0;
 						var id = obstacles.length;
-						obstacles[id] = new Obstacle(randomColor(), new Rect(canvas.width + 100, 0, canvas.width, 100), random(20, 70), id);
+						var rect = new Rect(canvas.width, 0, canvas.width + 100, 100);
+						var jump = random(20, 70);
+						var clone = undefined;
+
+						switch(random(0, 10)){
+							case 0:
+							case 1:
+							case 2:
+								rect = new Rect(canvas.width, 0, canvas.width + 1000, 30);
+								jump = Number.MAX_VALUE;
+								clone = 0;
+								break;
+							case 10:
+								rect = new Rect(canvas.width, 0, canvas.width + 30, canvas.height);
+								jump = Number.MAX_VALUE;
+								clone = 0;
+								break;
+						}
+
+						obstacles[id] = new Obstacle(randomColor(), rect, jump, id, clone);
 					}
 
 					redraw();
@@ -499,7 +519,7 @@
                         break;
                 }
             }
-			
+
 			function Particle(id, x, y, size, color, age, grow, ygrow){
 				this.x = x;
 				this.y = y;
@@ -511,16 +531,16 @@
 				this.currentAge = 0;
 				this.id = id;
 			}
-			
+
 			Particle.prototype.update =  function(){
 				this.size += this.grow * this.currentAge;
-				
+
 				if(this.size < 0){
 					//delete particles[this.id];
 					particles.splice(this.id, 1);
 					return;
 				}
-				
+
 				this.y += this.ygrow;
 
 				var blur = ctx.createRadialGradient(
@@ -549,7 +569,7 @@
             function createParticle(x, y, size, color, age, grow, ygrow){
 				var id = particles.length;
 				particles[id] = new Particle(id, x, y, size, color, age, grow, ygrow);
-                
+
             }
 
             window.addEventListener("keydown", onKeyDown, false);
